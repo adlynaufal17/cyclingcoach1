@@ -1,0 +1,93 @@
+name: Build & Deploy Cycling Coach
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.d.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Susun website
+        run: |
+          mkdir -p site/gps site/strava src/gps src/strava
+          unzip -q CyclingCoach-GPS-source.zip -d src/gps
+          unzip -q CyclingCoachConnect-Strava-source.zip -d src/strava
+          cp -r src/gps/www/. site/gps/
+          cp -r src/strava/www/. site/strava/
+          cp index.html site/index.html
+          cp src/gps/www/icon-192.png site/icon-192.png
+          touch site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: d
+        uses: actions/deploy-pages@v4
+
+  apk:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - zip: CyclingCoach-GPS-source.zip
+            name: CyclingCoach-GPS
+          - zip: CyclingCoachConnect-Strava-source.zip
+            name: CyclingCoach-Strava
+    steps:
+      - uses: actions/checkout@v4
+      - run: unzip -q ${{ matrix.zip }} -d app
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+      - name: Build APK
+        working-directory: app
+        run: |
+          npm install
+          npx cap add android
+          npm run icons
+          cp -r android-res/* android/app/src/main/res/
+          sed -i 's#<application#<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />\n\n    <application#' android/app/src/main/AndroidManifest.xml
+          npx cap sync android
+          cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+          mkdir -p ../../dist && cp app/build/outputs/apk/debug/app-debug.apk ../../dist/${{ matrix.name }}.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/*.apk
+
+  release:
+    needs: apk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Cycling Coach v1.0.${{ github.run_number }}
+          make_latest: true
+          body: "Download APK di bawah → install di HP Android (izinkan 'Install dari sumber tidak dikenal')."
+          files: dist/*.apk
