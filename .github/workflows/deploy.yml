@@ -59,13 +59,13 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      - uses: android-actions/setup-android@v3
+      - name: Siapkan Android SDK
+        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
       - name: Build APK
         working-directory: app
         run: |
           npm install
           npx cap add android
-          npm run icons
           cp -r android-res/* android/app/src/main/res/
           sed -i 's#<application#<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />\n\n    <application#' android/app/src/main/AndroidManifest.xml
           npx cap sync android
